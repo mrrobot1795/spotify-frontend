@@ -1,6 +1,6 @@
-import axios from "axios";
+import axios from 'axios';
 
-const backendUrl = process.env.REACT_APP_BACKEND_URL || "http://localhost:5000/api"; // Default fallback for local
+const backendUrl = process.env.REACT_APP_BACKEND_URL || "https://spotify-backend-zeta.vercel.app/api";
 
 const axiosInstance = axios.create({
   baseURL: backendUrl,

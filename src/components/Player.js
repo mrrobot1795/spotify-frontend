@@ -117,6 +117,9 @@ const Player = ({
       const startTime = currentSong.startTime || 0;
       const endTime = currentSong.endTime || trackDuration;
 
+      const remainingTime =
+        (endTime - Math.max(currentTrackPosition, startTime)) * 1000;
+
       if (endTimeoutRef.current) {
         clearTimeout(endTimeoutRef.current);
       }
@@ -135,15 +138,14 @@ const Player = ({
         .then(() => {
           setIsPlaying(true);
 
-          const duration = (endTime - startTime) * 1000;
           endTimeoutRef.current = setTimeout(() => {
             handlePause();
             playNextSongFromQueue();
-          }, duration);
+          }, remainingTime);
         })
         .catch((error) => console.error("Error playing song:", error));
     }
-  }, [currentSong, deviceId, isReady, player, token]);
+  }, [currentSong, currentTrackPosition, deviceId, isReady, player, token]);
 
   useEffect(() => {
     if (player) {

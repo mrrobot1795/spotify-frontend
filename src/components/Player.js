@@ -137,8 +137,10 @@ const Player = ({
 
           const duration = (endTime - startTime) * 1000;
           endTimeoutRef.current = setTimeout(() => {
-            handlePause();
-            playNextSongFromQueue();
+            if (isPlaying) {
+              handlePause();
+              playNextSongFromQueue();
+            }
           }, duration);
         })
         .catch((error) => console.error("Error playing song:", error));
@@ -176,7 +178,19 @@ const Player = ({
     })
       .then(() => {
         setIsPlaying(false);
+        const elapsedTime = currentTrackPosition * 1000;
+        const remainingTime = endTimeoutRef.current
+          ? endTimeoutRef.current._idleTimeout - elapsedTime
+          : 0;
+
         clearTimeout(endTimeoutRef.current);
+
+        if (remainingTime > 0) {
+          endTimeoutRef.current = setTimeout(() => {
+            handlePause();
+            playNextSongFromQueue();
+          }, remainingTime);
+        }
       })
       .catch((error) => console.error("Error pausing the track:", error));
   };

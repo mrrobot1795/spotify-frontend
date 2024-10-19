@@ -115,10 +115,9 @@ const Player = ({
     if (currentSong && player && deviceId && isReady) {
       const spotifyURI = currentSong.uri;
       const startTime = currentSong.startTime || 0;
+      const effectiveStartTime = Math.max(currentTrackPosition, startTime);
       const endTime = currentSong.endTime || trackDuration;
-
-      const remainingTime =
-        (endTime - Math.max(currentTrackPosition, startTime)) * 1000;
+      const remainingTime = Math.max((endTime - effectiveStartTime) * 1000, 0);
 
       if (endTimeoutRef.current) {
         clearTimeout(endTimeoutRef.current);
@@ -128,7 +127,7 @@ const Player = ({
         method: "PUT",
         body: JSON.stringify({
           uris: [spotifyURI],
-          position_ms: startTime * 1000,
+          position_ms: effectiveStartTime * 1000,
         }),
         headers: {
           "Content-Type": "application/json",
@@ -137,7 +136,6 @@ const Player = ({
       })
         .then(() => {
           setIsPlaying(true);
-
           endTimeoutRef.current = setTimeout(() => {
             handlePause();
             playNextSongFromQueue();
@@ -146,26 +144,6 @@ const Player = ({
         .catch((error) => console.error("Error playing song:", error));
     }
   }, [currentSong, currentTrackPosition, deviceId, isReady, player, token]);
-
-  useEffect(() => {
-    if (player) {
-      player.addListener("player_state_changed", (state) => {
-        if (!state) return;
-
-        setCurrentTrackPosition(state.position / 1000);
-        setTrackDuration(state.duration / 1000);
-        setIsPlaying(!state.paused);
-
-        const currentPosition = state.position / 1000;
-        const endTime = currentSong.endTime || trackDuration;
-
-        if (currentPosition >= endTime) {
-          handlePause();
-          playNextSongFromQueue();
-        }
-      });
-    }
-  }, [player, currentSong]);
 
   const handlePlayPause = () => {
     if (!player || !isReady || !deviceId) {
@@ -176,6 +154,11 @@ const Player = ({
     if (isPlaying) {
       handlePause();
     } else {
+      const remainingTime = Math.max(
+        (currentSong.endTime - currentTrackPosition) * 1000,
+        0
+      );
+
       fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
         method: "PUT",
         headers: {
@@ -183,7 +166,18 @@ const Player = ({
           Authorization: `Bearer ${token}`,
         },
       })
-        .then(() => setIsPlaying(true))
+        .then(() => {
+          setIsPlaying(true);
+
+          if (endTimeoutRef.current) {
+            clearTimeout(endTimeoutRef.current);
+          }
+
+          endTimeoutRef.current = setTimeout(() => {
+            handlePause();
+            playNextSongFromQueue();
+          }, remainingTime);
+        })
         .catch((error) => console.error("Error resuming the track:", error));
     }
   };

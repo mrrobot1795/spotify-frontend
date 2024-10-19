@@ -137,15 +137,33 @@ const Player = ({
 
           const duration = (endTime - startTime) * 1000;
           endTimeoutRef.current = setTimeout(() => {
-            if (isPlaying) {
-              handlePause();
-              playNextSongFromQueue();
-            }
+            handlePause();
+            playNextSongFromQueue();
           }, duration);
         })
         .catch((error) => console.error("Error playing song:", error));
     }
   }, [currentSong, deviceId, isReady, player, token]);
+
+  useEffect(() => {
+    if (player) {
+      player.addListener("player_state_changed", (state) => {
+        if (!state) return;
+
+        setCurrentTrackPosition(state.position / 1000);
+        setTrackDuration(state.duration / 1000);
+        setIsPlaying(!state.paused);
+
+        const currentPosition = state.position / 1000;
+        const endTime = currentSong.endTime || trackDuration;
+
+        if (currentPosition >= endTime) {
+          handlePause();
+          playNextSongFromQueue();
+        }
+      });
+    }
+  }, [player, currentSong]);
 
   const handlePlayPause = () => {
     if (!player || !isReady || !deviceId) {
@@ -178,19 +196,7 @@ const Player = ({
     })
       .then(() => {
         setIsPlaying(false);
-        const elapsedTime = currentTrackPosition * 1000;
-        const remainingTime = endTimeoutRef.current
-          ? endTimeoutRef.current._idleTimeout - elapsedTime
-          : 0;
-
         clearTimeout(endTimeoutRef.current);
-
-        if (remainingTime > 0) {
-          endTimeoutRef.current = setTimeout(() => {
-            handlePause();
-            playNextSongFromQueue();
-          }, remainingTime);
-        }
       })
       .catch((error) => console.error("Error pausing the track:", error));
   };

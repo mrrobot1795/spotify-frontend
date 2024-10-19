@@ -60,8 +60,7 @@ const Player = ({
           setIsReady(true);
         });
 
-        playerInstance.addListener("not_ready", ({ device_id }) => {
-        });
+        playerInstance.addListener("not_ready", ({ device_id }) => {});
 
         playerInstance.addListener("player_state_changed", (state) => {
           if (!state) return;
@@ -118,7 +117,6 @@ const Player = ({
       const startTime = currentSong.startTime || 0;
       const endTime = currentSong.endTime || trackDuration;
 
-
       if (endTimeoutRef.current) {
         clearTimeout(endTimeoutRef.current);
       }
@@ -139,9 +137,8 @@ const Player = ({
 
           const duration = (endTime - startTime) * 1000;
           endTimeoutRef.current = setTimeout(() => {
-            if (isPlaying) {
-              playNextSongFromQueue();
-            }
+            handlePause();
+            playNextSongFromQueue();
           }, duration);
         })
         .catch((error) => console.error("Error playing song:", error));

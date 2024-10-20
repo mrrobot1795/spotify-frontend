@@ -25,10 +25,9 @@ const Player = ({
   const [trackDuration, setTrackDuration] = useState(30);
   const [deviceId, setDeviceId] = useState(null);
   const [isReady, setIsReady] = useState(false);
-
   const token = localStorage.getItem("spotifyAccessToken");
+  const positionIntervalRef = useRef(null);
   const endTimeoutRef = useRef(null);
-  const lastPlayPositionRef = useRef(0);
 
   const formatTime = (seconds) =>
     `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(
@@ -61,23 +60,25 @@ const Player = ({
           setIsReady(true);
         });
 
+        playerInstance.addListener("not_ready", ({ device_id }) => {});
         playerInstance.addListener("player_state_changed", (state) => {
           if (!state) return;
 
-          const position = state.position / 1000;
-          setCurrentTrackPosition(position);
+          setCurrentTrackPosition(state.position / 1000);
           setTrackDuration(state.duration / 1000);
           setIsPlaying(!state.paused);
 
-          lastPlayPositionRef.current = position;
-
-          if (position >= (currentSong.endTime || trackDuration)) {
-            handlePause();
+          if (state.position >= state.duration && state.paused === false) {
             playNextSongFromQueue();
           }
         });
 
-        playerInstance.connect();
+        playerInstance.connect().then((success) => {
+          if (success) {
+            console.log("Successfully connected to Spotify Web Playback.");
+          }
+        });
+
         setPlayer(playerInstance);
       };
     };
@@ -85,22 +86,42 @@ const Player = ({
     initializeSpotifyPlayer();
 
     return () => {
-      if (player) player.disconnect();
+      if (player) {
+        player.disconnect();
+      }
     };
   }, [token]);
 
   useEffect(() => {
-    if (isPlaying && player && deviceId && isReady) {
+    if (isPlaying) {
+      positionIntervalRef.current = setInterval(() => {
+        setCurrentTrackPosition((prev) => {
+          if (prev >= trackDuration) {
+            clearInterval(positionIntervalRef.current);
+            return trackDuration;
+          }
+          return prev + 1;
+        });
+      }, 1000);
+    } else {
+      clearInterval(positionIntervalRef.current);
+    }
+
+    return () => clearInterval(positionIntervalRef.current);
+  }, [isPlaying, trackDuration]);
+
+  useEffect(() => {
+    if (currentSong && player && deviceId && isReady) {
       const spotifyURI = currentSong.uri;
       const startTime = currentSong.startTime || 0;
       const endTime = currentSong.endTime || trackDuration;
 
-      const positionToPlay =
-        lastPlayPositionRef.current > startTime
-          ? lastPlayPositionRef.current * 1000
+      const playPosition =
+        currentTrackPosition > startTime
+          ? currentTrackPosition * 1000
           : startTime * 1000;
 
-      const remainingTime = Math.max(endTime * 1000 - positionToPlay, 0);
+      const remainingTime = Math.max(endTime * 1000 - playPosition, 0);
 
       if (endTimeoutRef.current) {
         clearTimeout(endTimeoutRef.current);
@@ -110,7 +131,7 @@ const Player = ({
         method: "PUT",
         body: JSON.stringify({
           uris: [spotifyURI],
-          position_ms: positionToPlay,
+          position_ms: playPosition,
         }),
         headers: {
           "Content-Type": "application/json",
@@ -118,6 +139,7 @@ const Player = ({
         },
       })
         .then(() => {
+          setIsPlaying(true);
           endTimeoutRef.current = setTimeout(() => {
             handlePause();
             playNextSongFromQueue();
@@ -125,17 +147,42 @@ const Player = ({
         })
         .catch((error) => console.error("Error playing song:", error));
     }
-
-    return () => clearTimeout(endTimeoutRef.current);
-  }, [isPlaying, currentSong, player, deviceId, isReady]);
+  }, [currentSong, currentTrackPosition, deviceId, isReady, player, token]);
 
   const handlePlayPause = () => {
-    if (!player || !isReady || !deviceId) return;
+    if (!player || !isReady || !deviceId) {
+      console.error("Player is not ready or device ID is missing.");
+      return;
+    }
 
     if (isPlaying) {
       handlePause();
     } else {
-      setIsPlaying(true);
+      const remainingTime = Math.max(
+        (currentSong.endTime - currentTrackPosition) * 1000,
+        0
+      );
+
+      fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      })
+        .then(() => {
+          setIsPlaying(true);
+
+          if (endTimeoutRef.current) {
+            clearTimeout(endTimeoutRef.current);
+          }
+
+          endTimeoutRef.current = setTimeout(() => {
+            handlePause(); // Ensure pause at end
+            playNextSongFromQueue();
+          }, remainingTime);
+        })
+        .catch((error) => console.error("Error resuming the track:", error));
     }
   };
 
@@ -149,14 +196,13 @@ const Player = ({
     })
       .then(() => {
         setIsPlaying(false);
-        clearTimeout(endTimeoutRef.current);
+        clearTimeout(endTimeoutRef.current); // Clear timeout on pause
       })
       .catch((error) => console.error("Error pausing the track:", error));
   };
 
   const handleSliderChange = (_, value) => {
     setCurrentTrackPosition(value);
-    lastPlayPositionRef.current = value;
 
     fetch(
       `https://api.spotify.com/v1/me/player/seek?position_ms=${value * 1000}`,
@@ -175,7 +221,23 @@ const Player = ({
       const nextSong = queue[0];
       setQueue((prevQueue) => prevQueue.slice(1));
       setCurrentSong(nextSong);
-      setIsPlaying(true);
+
+      const spotifyURI = nextSong.uri;
+      const startTime = nextSong.startTime || 0;
+
+      fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          uris: [spotifyURI],
+          position_ms: startTime * 1000,
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      })
+        .then(() => setIsPlaying(true))
+        .catch((error) => console.error("Error playing next song:", error));
     } else {
       setIsPlaying(false);
     }
@@ -206,6 +268,7 @@ const Player = ({
             Album: {currentSong?.album?.name || "Unknown Album"}
           </Typography>
 
+          {/* Controls */}
           <Stack
             direction="row"
             justifyContent="center"
@@ -231,12 +294,17 @@ const Player = ({
             </IconButton>
           </Stack>
 
+          {/* Track progress */}
           <Box sx={{ mt: 4, width: "100%" }}>
             <Typography variant="body1">
               {formatTime(currentTrackPosition)} / {formatTime(trackDuration)}
             </Typography>
             <Slider
-              value={currentTrackPosition}
+              value={
+                typeof currentTrackPosition === "number"
+                  ? currentTrackPosition
+                  : 0
+              }
               max={trackDuration}
               onChange={handleSliderChange}
               sx={{
@@ -247,6 +315,9 @@ const Player = ({
                   height: 20,
                   borderRadius: "50%",
                   backgroundColor: "#fff",
+                },
+                "& .MuiSlider-track": {
+                  border: "none",
                 },
               }}
             />

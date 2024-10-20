@@ -147,7 +147,7 @@ const Player = ({
         })
         .catch((error) => console.error("Error playing song:", error));
     }
-  }, [currentSong, currentTrackPosition, deviceId, isReady, player, token]);
+  }, [currentSong, deviceId, isReady, player, token]);
 
   const handlePlayPause = () => {
     if (!player || !isReady || !deviceId) {
@@ -178,7 +178,7 @@ const Player = ({
           }
 
           endTimeoutRef.current = setTimeout(() => {
-            handlePause(); // Ensure pause at end
+            handlePause();
             playNextSongFromQueue();
           }, remainingTime);
         })
@@ -196,10 +196,33 @@ const Player = ({
     })
       .then(() => {
         setIsPlaying(false);
-        clearTimeout(endTimeoutRef.current); // Clear timeout on pause
+        clearTimeout(endTimeoutRef.current);
       })
       .catch((error) => console.error("Error pausing the track:", error));
   };
+
+  useEffect(() => {
+    if (player) {
+      player.addListener("player_state_changed", (state) => {
+        if (!state) return;
+
+        const newPosition = state.position / 1000;
+        if (Math.floor(newPosition) !== Math.floor(currentTrackPosition)) {
+          setCurrentTrackPosition(newPosition);
+        }
+
+        setIsPlaying(!state.paused);
+
+        const currentPosition = state.position / 1000;
+        const endTime = currentSong.endTime || trackDuration;
+
+        if (currentPosition >= endTime) {
+          handlePause();
+          playNextSongFromQueue();
+        }
+      });
+    }
+  }, [player, currentSong]);
 
   const handleSliderChange = (_, value) => {
     setCurrentTrackPosition(value);

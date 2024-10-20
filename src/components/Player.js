@@ -115,9 +115,14 @@ const Player = ({
     if (currentSong && player && deviceId && isReady) {
       const spotifyURI = currentSong.uri;
       const startTime = currentSong.startTime || 0;
-      const effectiveStartTime = Math.max(currentTrackPosition, startTime);
       const endTime = currentSong.endTime || trackDuration;
-      const remainingTime = Math.max((endTime - effectiveStartTime) * 1000, 0);
+
+      const playPosition =
+        currentTrackPosition > startTime
+          ? currentTrackPosition * 1000
+          : startTime * 1000;
+
+      const remainingTime = Math.max(endTime * 1000 - playPosition, 0);
 
       if (endTimeoutRef.current) {
         clearTimeout(endTimeoutRef.current);
@@ -127,7 +132,7 @@ const Player = ({
         method: "PUT",
         body: JSON.stringify({
           uris: [spotifyURI],
-          position_ms: effectiveStartTime * 1000,
+          position_ms: playPosition,
         }),
         headers: {
           "Content-Type": "application/json",
